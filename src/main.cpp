@@ -65,6 +65,8 @@ Mouse.click(b);         A quick press and release.
 **********************************************************************************************************/
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include <esp_log.h>
+#include <esp_system.h>
 #include "Display.h"
 #include "EncoderFeatures.h"
 #include "LED.h"
@@ -91,29 +93,76 @@ const int pot = 1;           // pot for adjusting attract mode demoTime or mouse
 //const int Mode1= A2;
 //const int Mode2= A3; //Mode status LEDs
 
-void setup() {
-  displaySetup();
-  // pinMode(ModeButton, INPUT_PULLUP);  // initialize the button pin as a input:  
-  // Serial.begin(9600); // initialize serial communication:
+TaskHandle_t taskHandle = NULL;
+#define BASE_PRIORITY 5
+QueueHandle_t buffer;
+int BLE = 0;
 
-  // delay(800);
-  encoderSetup();
-  keyboardSetup();
-}
-
-
-void loop() {
-  if(keyboard.isConnected()) {
-    char key = keypad.getKey();
-    if(key != -1) {
-      keyboardSend(key);
+void keypressProcessTask(void *arg) {
+  char rcv;
+  while(1) {
+    if (xQueueReceive(buffer, &rcv, pdMS_TO_TICKS(1000)) == true) {
+      keyboardSend(rcv);
     }
-    delay(50);
-    checkEncoder_2();
-  } else {
-    sendToScreen("Not connected.");
+    vTaskDelay(500/ portTICK_RATE_MS);
   }
 }
+
+void keypressTask(void *arg) {
+  while(1) {
+    char key = keypad.getKey();
+    if(key != -1 && BLE == 1) {
+      xQueueSend(buffer, &key, pdMS_TO_TICKS(0));
+    }
+    vTaskDelay(500/ portTICK_RATE_MS);
+  }
+}
+
+void bleConnectTask(void *arg) {
+  while(1) {
+    if(keyboard.isConnected()) {
+      BLE = 1;
+    } else {
+      BLE = 0;
+    }
+    vTaskDelay(500/ portTICK_RATE_MS);
+  }
+}
+
+void loop() {
+
+}
+
+void setup() {
+  buffer = xQueueCreate(10, sizeof(char)); // Cria a queue *buffer* com 10 slots de 4 Bytes
+  xTaskCreatePinnedToCore(keypressTask, "Keypress Task", 4096, NULL, BASE_PRIORITY, &taskHandle, 1);
+  xTaskCreatePinnedToCore(keypressProcessTask, "Keypress Process Task", 4096, NULL, BASE_PRIORITY, &taskHandle, 1);
+  xTaskCreate(bleConnectTask, "BLE Connect Task", 4096, NULL, BASE_PRIORITY, &taskHandle);
+}
+
+// void setup() {
+//   displaySetup();
+//   // pinMode(ModeButton, INPUT_PULLUP);  // initialize the button pin as a input:  
+//   // Serial.begin(9600); // initialize serial communication:
+
+//   // delay(800);
+//   encoderSetup();
+//   keyboardSetup();
+// }
+
+
+// void loop() {
+//   if(keyboard.isConnected()) {
+//     char key = keypad.getKey();
+//     if(key != -1) {
+//       keyboardSend(key);
+//     }
+//     delay(50);
+//     checkEncoder_2();
+//   } else {
+//     sendToScreen("Not connected.");
+//   }
+// }
 //---------------------Sub Routine Section--------------------------------------------------------------------------
 
 // void checkModeButton(){
